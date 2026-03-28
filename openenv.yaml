@@ -1,0 +1,29 @@
+version: "1.0.0"
+name: "LogisticsFlow-Sim"
+description: "A real-world supply chain and warehouse dispatcher environment. Agents must manage budget, inventory, and order queues."
+tags: ["logistics", "supply-chain", "business-operations", "resource-management"]
+entry_point: "main:app"
+
+observation_space:
+  type: "object"
+  properties:
+    inventory: 
+      type: "object"
+      description: "Current stock levels of items."
+    pending_orders: 
+      type: "array"
+      description: "List of orders waiting to be shipped."
+    budget: 
+      type: "number"
+      description: "Available cash to pay for shipping and restocking."
+    message: 
+      type: "string"
+
+action_space:
+  type: "object"
+  properties:
+    command: 
+      enum: ["ship", "restock", "wait"]
+    params: 
+      type: "object"
+      description: "Parameters for the command (e.g., order_id, carrier, item)"

@@ -1,67 +1,41 @@
-from app.models import State
-from typing import Dict, Any, Tuple
+import random
 
 class LogisticsTasks:
-    
     @staticmethod
-    def get_task_setup(level: str) -> Tuple[Dict, list, float]:
-        """Returns (inventory, pending_orders, budget) for the chosen difficulty."""
+    def get_task_setup(level: str):
+        # Introduce randomness so the AI can't memorize the environment
+        items = ["Electronics", "Clothing", "Medical", "Food"]
+        random_item = random.choice(items)
+        order_id = f"ORD-{random.randint(100, 999)}"
+        
         if level == "easy":
-            return (
-                {"Electronics": 10}, 
-                [{"id": "ORD-1", "priority": "Standard", "age": 0}], 
-                100.0
-            )
-        elif level == "medium":
-            return (
-                {"Apparel": 20}, 
-                [{"id": "ORD-1", "priority": "VIP", "age": 0}, 
-                 {"id": "ORD-2", "priority": "Standard", "age": 0}], 
-                15.0  # Tight budget! AI must use cheap shipping.
-            )
-        elif level == "hard":
-            return (
-                {"Electronics": 0},  # OUT OF STOCK! AI must restock first.
-                [{"id": "ORD-1", "priority": "VIP", "age": 0}], 
-                100.0
-            )
-        else:
-            return ({"Default": 10}, [], 100.0)
-
-class TaskGrader:
-    
-    @staticmethod
-    def grade(level: str, initial_state: State, final_state: State) -> float:
-        """Scores the AI's performance from 0.0 to 1.0"""
-        score = 0.0
-        
-        # Did they clear all orders? (Base requirement)
-        orders_cleared = len(initial_state.pending_orders) - len(final_state.pending_orders)
-        total_orders = len(initial_state.pending_orders)
-        
-        if total_orders > 0:
-            score += (orders_cleared / total_orders) * 0.5  # 50% of score is just finishing the job
+            # Easy: Plentiful budget, item is already in stock
+            budget = random.uniform(100.0, 150.0)
+            inventory = {random_item: random.randint(5, 15)}
+            orders = [{"id": order_id, "priority": "Standard", "item": random_item, "age": 0}]
             
-        # Task Specific Grading
-        if level == "easy":
-            # Just finish the job
-            if len(final_state.pending_orders) == 0:
-                score += 0.5
-                
         elif level == "medium":
-            # Must finish job AND not go bankrupt
-            if len(final_state.pending_orders) == 0 and final_state.budget >= 0:
-                score += 0.5
-            elif final_state.budget < 0:
-                score = 0.0 # Punish bankruptcy
-                
+            # Medium: Very tight budget, standard inventory
+            budget = random.uniform(25.0, 40.0)
+            inventory = {random_item: random.randint(5, 10), "Gadgets": 2}
+            orders = [
+                {"id": order_id, "priority": "VIP", "item": random_item, "age": 1},
+                {"id": f"ORD-{random.randint(100, 999)}", "priority": "Standard", "item": "Gadgets", "age": 0}
+            ]
+            
         elif level == "hard":
-            # Must restock and ship VIP
-            if len(final_state.pending_orders) == 0:
-                score += 0.5
-            if final_state.inventory.get("Electronics", 0) > 0:
-                # Bonus points if they restocked properly and have leftover
-                score += 0.1
-                
-        # Cap score between 0.0 and 1.0
-        return max(0.0, min(1.0, score))
+            # Hard: The Stock-out Crisis (Zero inventory of the requested item)
+            budget = random.uniform(80.0, 120.0)
+            inventory = {random_item: 0} # AI MUST restock this first
+            orders = [{"id": order_id, "priority": "VIP", "item": random_item, "age": 2}]
+            
+        else:
+            # Default fallback
+            budget = 100.0
+            inventory = {"Electronics": 10}
+            orders = [{"id": "ORD-000", "priority": "Standard", "item": "Electronics", "age": 0}]
+
+        # Round budget to 2 decimal places for cleaner logs
+        budget = round(budget, 2)
+        
+        return inventory, orders, budget

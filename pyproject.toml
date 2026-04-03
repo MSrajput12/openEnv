@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "logisticsflow-openenv"
 version = "0.1.0"
-description = "A real-world OpenEnv simulation for testing AI agents on Supply Chain Management."
+description = "A real-world OpenEnv simulation."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -13,5 +13,9 @@ dependencies = [
     "uvicorn",
     "pydantic",
     "openai",
-    "requests"
+    "requests",
+    "openenv-core>=0.2.0"
 ]
+
+[project.scripts]
+server = "server.app:run"

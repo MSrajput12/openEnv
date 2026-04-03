@@ -75,7 +75,9 @@ def get_state():
     return env.state()
 
 # --- THE OPENENV MULTI-MODE ENTRY POINT ---
-# (This is exactly where those 3 lines go!)
-def run():
+def main():
     import uvicorn
     uvicorn.run("server.app:app", host="0.0.0.0", port=7860)
+
+if __name__ == "__main__":
+    main()

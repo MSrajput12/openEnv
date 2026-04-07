@@ -1,6 +1,7 @@
 import os
 import json
 import urllib.request
+import time
 from openai import OpenAI
 
 # ==========================================
@@ -8,14 +9,16 @@ from openai import OpenAI
 # ==========================================
 API_BASE_URL = os.getenv("API_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
 MODEL_NAME = os.getenv("MODEL_NAME", "gemini-2.5-flash")
-HF_TOKEN = os.getenv("HF_TOKEN") 
+HF_TOKEN = os.getenv("HF_TOKEN")
 
 # ==========================================
 # 2. ENVIRONMENT SETUP
 # ==========================================
 ENV_URL = "https://mark012-logisticsflow-openenv.hf.space"
-TASK_NAME = "hard"
 BENCHMARK = "LogisticsFlow-OpenEnv"
+
+# FIX 1: Define all 3 required tasks with graders
+TASKS = ["easy", "medium", "hard"]
 
 client = OpenAI(api_key=HF_TOKEN, base_url=API_BASE_URL)
 
@@ -35,7 +38,7 @@ def log_end(success: bool, steps: int, score: float, rewards: list) -> None:
     print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
 
 # ==========================================
-# 4. NETWORK HELPER (No 'requests' library needed)
+# 4. NETWORK HELPER (No 'requests' library)
 # ==========================================
 def send_post_request(url: str, payload: dict) -> dict:
     data = json.dumps(payload).encode('utf-8')
@@ -44,31 +47,44 @@ def send_post_request(url: str, payload: dict) -> dict:
         return json.loads(response.read().decode('utf-8'))
 
 # ==========================================
-# 5. INFERENCE LOOP
+# 5. FIX 2: Score must be STRICTLY between 0 and 1
 # ==========================================
-def run_inference():
-    log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
+def compute_score(rewards: list) -> float:
+    raw = sum(rewards)
+    # Clamp to strictly (0.0, 1.0) — 0.0 and 1.0 are NOT allowed
+    MIN_SCORE = 0.001
+    MAX_SCORE = 0.999
+    return min(max(raw, MIN_SCORE), MAX_SCORE)
 
-    # Reset Environment
+# ==========================================
+# 6. SINGLE TASK RUNNER
+# ==========================================
+def run_task(task_name: str) -> float:
+    log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
+
+    # Reset Environment for this task level
     try:
-        obs = send_post_request(f"{ENV_URL}/reset", {"level": TASK_NAME})
+        obs = send_post_request(f"{ENV_URL}/reset", {"level": task_name})
     except Exception as e:
-        print(f"Failed to connect to environment: {e}")
-        # The prompt instructed us to wrap risky operations. If it fails, we gracefully exit.
-        return
+        print(f"Failed to connect to environment for task '{task_name}': {e}", flush=True)
+        log_end(success=False, steps=0, score=0.001, rewards=[])
+        return 0.001
 
     rewards = []
     steps_taken = 0
-    success = False
 
-    for step in range(1, 21): # Max 20 steps
+    for step in range(1, 21):  # Max 20 steps per task
         current_state = obs.get("observation", obs) if isinstance(obs, dict) else obs
 
-        # Prepare prompt
-        system_prompt = "You are an AI logistics agent. Analyze the state. You must output exactly valid JSON. Actions: {'command': 'ship', 'params': {'order_id': 'ORD-XYZ', 'carrier': 'Standard'}} OR {'command': 'restock', 'params': {'item': 'Electronics'}}."
+        system_prompt = (
+            "You are an AI logistics agent. Analyze the state carefully. "
+            "You must output exactly valid JSON. "
+            "Available actions: "
+            "{'command': 'ship', 'params': {'order_id': 'ORD-XYZ', 'carrier': 'Standard'}} "
+            "OR {'command': 'restock', 'params': {'item': 'Electronics'}}."
+        )
         user_prompt = f"Current State: {json.dumps(current_state)}"
 
-        # Get Model Action
         try:
             response = client.chat.completions.create(
                 model=MODEL_NAME,
@@ -76,18 +92,17 @@ def run_inference():
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                response_format={"type": "json_object"} # Forces valid JSON
+                response_format={"type": "json_object"}
             )
             action_str = response.choices[0].message.content.strip()
             action_json = json.loads(action_str)
-            action_log = action_str.replace('\n', '').replace(' ', '') # Flatten for logging
+            action_log = action_str.replace('\n', '').replace(' ', '')
             error = None
         except Exception as e:
             action_json = {"command": "wait", "params": {}}
             action_log = "error"
             error = str(e)
 
-        # Step the Environment
         try:
             obs = send_post_request(f"{ENV_URL}/step", action_json)
             reward = obs.get("reward", 0.0)
@@ -99,19 +114,41 @@ def run_inference():
 
         rewards.append(reward)
         steps_taken = step
-        
-        # Log strictly
+
         log_step(step=step, action=action_log, reward=reward, done=done, error=error)
+
+        # Rate limit safety
+        time.sleep(4)
 
         if done:
             break
 
-    # Calculate final score (clamp between 0 and 1 for judges)
-    score = sum(rewards)
-    normalized_score = min(max(score, 0.0), 1.0)
-    success = normalized_score > 0.0
+    # FIX 2: Use strict (0, 1) scorer
+    score = compute_score(rewards)
+    success = score > 0.001
 
-    log_end(success=success, steps=steps_taken, score=normalized_score, rewards=rewards)
+    log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
+    return score
+
+# ==========================================
+# 7. MAIN: Run ALL 3 tasks
+# ==========================================
+def run_inference():
+    all_scores = {}
+
+    for task in TASKS:
+        print(f"\n{'='*50}", flush=True)
+        print(f"Running task: {task}", flush=True)
+        print(f"{'='*50}", flush=True)
+        score = run_task(task)
+        all_scores[task] = score
+        # Brief pause between tasks to avoid rate limits
+        time.sleep(5)
+
+    # Summary
+    print(f"\n[SUMMARY] All task scores:", flush=True)
+    for task, score in all_scores.items():
+        print(f"  {task}: {score:.3f}", flush=True)
 
 if __name__ == "__main__":
     run_inference()

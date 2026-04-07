@@ -1,22 +1,18 @@
 import os
 import json
-import requests
+import urllib.request
 from openai import OpenAI
 
 # ==========================================
 # 1. MANDATORY ENVIRONMENT VARIABLES
-# The hackathon automated grader will inject these.
-# For local testing, we provide default fallbacks to Gemini's OpenAI-compatible endpoint.
 # ==========================================
 API_BASE_URL = os.getenv("API_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/")
 MODEL_NAME = os.getenv("MODEL_NAME", "gemini-2.5-flash")
-# Note: For local testing, set your HF_TOKEN environment variable to your Gemini API key!
 HF_TOKEN = os.getenv("HF_TOKEN") 
 
 # ==========================================
 # 2. ENVIRONMENT SETUP
 # ==========================================
-# REPLACE THIS WITH YOUR ACTUAL HUGGING FACE DIRECT URL
 ENV_URL = "https://mark012-logisticsflow-openenv.hf.space"
 TASK_NAME = "hard"
 BENCHMARK = "LogisticsFlow-OpenEnv"
@@ -39,17 +35,26 @@ def log_end(success: bool, steps: int, score: float, rewards: list) -> None:
     print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
 
 # ==========================================
-# 4. INFERENCE LOOP
+# 4. NETWORK HELPER (No 'requests' library needed)
+# ==========================================
+def send_post_request(url: str, payload: dict) -> dict:
+    data = json.dumps(payload).encode('utf-8')
+    req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json'})
+    with urllib.request.urlopen(req) as response:
+        return json.loads(response.read().decode('utf-8'))
+
+# ==========================================
+# 5. INFERENCE LOOP
 # ==========================================
 def run_inference():
     log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
 
     # Reset Environment
     try:
-        res = requests.post(f"{ENV_URL}/reset", json={"level": TASK_NAME})
-        obs = res.json()
+        obs = send_post_request(f"{ENV_URL}/reset", {"level": TASK_NAME})
     except Exception as e:
         print(f"Failed to connect to environment: {e}")
+        # The prompt instructed us to wrap risky operations. If it fails, we gracefully exit.
         return
 
     rewards = []
@@ -57,7 +62,6 @@ def run_inference():
     success = False
 
     for step in range(1, 21): # Max 20 steps
-        # Extract the observation state
         current_state = obs.get("observation", obs) if isinstance(obs, dict) else obs
 
         # Prepare prompt
@@ -85,8 +89,7 @@ def run_inference():
 
         # Step the Environment
         try:
-            res = requests.post(f"{ENV_URL}/step", json=action_json)
-            obs = res.json()
+            obs = send_post_request(f"{ENV_URL}/step", action_json)
             reward = obs.get("reward", 0.0)
             done = obs.get("done", False)
         except Exception as e:
@@ -111,6 +114,4 @@ def run_inference():
     log_end(success=success, steps=steps_taken, score=normalized_score, rewards=rewards)
 
 if __name__ == "__main__":
-    # Ensure API key is set in terminal before running:
-    # Windows: $env:HF_TOKEN="your_gemini_api_key_here"
     run_inference()
